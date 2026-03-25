@@ -13,7 +13,7 @@ export const ClassificationDisplay: React.FC<ClassificationDisplayProps> = ({
   isRecording,
   realTimeVolume 
 }) => {
-  const volumeSizeAnim = React.useRef(new Animated.Value(60)).current; // Base radius
+  const volumeSizeAnim = React.useRef(new Animated.Value(30)).current; // Base radius 30
 
   // Always drive the ball from real-time mic volume (so it keeps moving even when results update)
   const displayVolume = React.useMemo(() => {
@@ -22,14 +22,15 @@ export const ClassificationDisplay: React.FC<ClassificationDisplayProps> = ({
 
   // Animate ball size based on display volume - smooth animated response
   React.useEffect(() => {
-    // Bigger range for more dramatic size changes
-    const targetSize = 60 + (displayVolume * 140); // 60-200px range (much more dramatic)
+    // Compact range for smaller circle
+    const targetSize = 30 + (displayVolume * 60); // 30-90px range
     
-    // Smooth animated transition for natural movement
-    Animated.timing(volumeSizeAnim, {
+    // Fast spring animation for immediate response
+    Animated.spring(volumeSizeAnim, {
       toValue: targetSize,
-      duration: 100, // 100ms smooth transition
-      useNativeDriver: false, // Can't use native driver for size changes
+      useNativeDriver: false,
+      friction: 5,
+      tension: 200,
     }).start();
   }, [displayVolume, volumeSizeAnim]);
 

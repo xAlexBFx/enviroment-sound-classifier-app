@@ -16,7 +16,7 @@ export const AudioRecorderComponent: React.FC<AudioRecorderComponentProps> = ({
         {isInitializing 
           ? 'Initializing sound classification...'
           : isRecording 
-            ? 'Recording and classifying sounds every 5 seconds...'
+            ? 'Recording and classifying sounds...'
             : 'Sound classification active'
         }
       </Text>

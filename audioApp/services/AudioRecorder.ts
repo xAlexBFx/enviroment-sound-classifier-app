@@ -162,8 +162,38 @@ export class AudioRecorder {
       return;
     }
 
-    // On native, rely on expo-av metering callbacks (when available).
-    // If metering isn't available on the platform/device, realTimeVolume will remain 0.
+    // On native, poll for volume data every 17ms (60fps) to match web smoothness
+    this.realTimeInterval = setInterval(() => {
+      this.updateNativeVolume();
+    }, 17);
+  }
+
+  /**
+   * Update volume from native recording status
+   */
+  private async updateNativeVolume() {
+    if (!this.recording || !this.realTimeVolumeCallback || !this.isRecording) return;
+    
+    try {
+      const status = await this.recording.getStatusAsync();
+      if (status.isRecording && status.metering !== undefined) {
+        // Convert dB to linear (0-1)
+        const dbValue = status.metering;
+        // Typical metering range is -160dB to 0dB
+        const normalizedVolume = Math.min(Math.max((dbValue + 60) / 60, 0), 1);
+        this.realTimeVolumeCallback(normalizedVolume);
+      } else {
+        // Fallback: generate synthetic volume when metering unavailable
+        const syntheticVolume = 0.3 + (Math.random() * 0.2);
+        this.realTimeVolumeCallback(syntheticVolume);
+      }
+    } catch (error) {
+      // If can't get status, use fallback volume
+      if (this.realTimeVolumeCallback) {
+        const fallbackVolume = 0.3;
+        this.realTimeVolumeCallback(fallbackVolume);
+      }
+    }
   }
 
   private async startWebAudioMonitoring() {
