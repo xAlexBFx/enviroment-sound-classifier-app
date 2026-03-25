@@ -1,5 +1,6 @@
 import { Audio } from 'expo-av';
 import { Platform } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
 
 export class AudioRecorder {
   private recording: Audio.Recording | null = null;
@@ -139,12 +140,12 @@ export class AudioRecorder {
     // Start recording and processing audio for classification
     this.recordAndProcess();
     
-    // Set up classification interval for continuous processing
+    // Set up classification interval - process every 5 seconds (4s record + 1s buffer)
     this.classificationInterval = setInterval(() => {
       if (!this.isProcessing) {
         this.recordAndProcess();
       }
-    }, 5000); // Record every 5 seconds, but only if not processing
+    }, 5000);
   }
 
   /**
@@ -274,19 +275,163 @@ export class AudioRecorder {
     this.isProcessing = true;
 
     try {
-      // If we have an actual recording available (native), we would extract real PCM samples.
-      // On web (or when recording isn't available), fall back to mock audio for now.
-      const audioData = this.recording ? this.generateMockAudioData() : this.generateMockAudioData();
+      // If we don't have a recording, start one
+      if (!this.recording) {
+        await this.startNewRecording();
+      }
       
-      // Immediately process the recorded audio
-      this.recordingCallback(audioData);
+      // Wait 4 seconds to capture audio
+      await new Promise(resolve => setTimeout(resolve, 4000));
       
+      // Now stop and process
+      if (this.recording) {
+        try {
+          await this.recording.stopAndUnloadAsync();
+          const uri = this.recording.getURI();
+          
+          if (uri) {
+            // Read the saved audio file
+            const audioData = await this.readAudioFile(uri);
+            this.recordingCallback(audioData);
+          }
+          
+          // Clean up
+          this.recording = null;
+          
+          // Start a new recording for the next cycle
+          await this.startNewRecording();
+        } catch (error) {
+          console.error('Error processing recording:', error);
+          this.recordingCallback(this.generateMockAudioData());
+        }
+      }
     } catch (error) {
+      console.error('Error in recordAndProcess:', error);
     } finally {
-      // Reset processing flag after a short delay to ensure processing is complete
-      setTimeout(() => {
-        this.isProcessing = false;
-      }, 1000);
+      this.isProcessing = false;
+    }
+  }
+
+  private async startNewRecording(): Promise<void> {
+    if (!this.isRecording) return;
+    
+    try {
+      const { recording } = await Audio.Recording.createAsync(
+        {
+          android: {
+            extension: '.wav',
+            outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+            audioEncoder: Audio.AndroidAudioEncoder.AAC,
+            sampleRate: 44100,
+            numberOfChannels: 1,
+            bitRate: 128000,
+          },
+          ios: {
+            extension: '.wav',
+            outputFormat: Audio.IOSOutputFormat.LINEARPCM,
+            audioQuality: Audio.IOSAudioQuality.HIGH,
+            sampleRate: 44100,
+            numberOfChannels: 1,
+            bitRate: 128000,
+            linearPCMBitDepth: 16,
+            linearPCMIsBigEndian: false,
+            linearPCMIsFloat: false,
+          },
+          web: {
+            mimeType: 'audio/webm',
+            bitsPerSecond: 128000,
+          },
+        },
+        (status) => {
+          if (status.isRecording && status.metering && this.realTimeVolumeCallback) {
+            const dbValue = status.metering;
+            const volume = Math.pow(10, dbValue / 20);
+            const normalizedVolume = Math.min(Math.max(volume, 0), 1);
+            this.realTimeVolumeCallback(normalizedVolume);
+          }
+        }
+      );
+      
+      this.recording = recording;
+    } catch (error) {
+      console.error('Error starting new recording:', error);
+    }
+  }
+
+  private async readAudioFile(uri: string): Promise<Float32Array> {
+    try {
+      // On web, we can't use expo-file-system, so use fetch instead
+      if (Platform.OS === 'web') {
+        const response = await fetch(uri);
+        const blob = await response.blob();
+        const arrayBuffer = await blob.arrayBuffer();
+        
+        // Parse WAV file from array buffer
+        return this.parseWavFromBuffer(arrayBuffer);
+      }
+      
+      // On native, use expo-file-system
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: 'base64',
+      });
+      
+      // Decode base64 to bytes
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      return this.parseWavData(bytes);
+    } catch (error) {
+      console.error('Error reading audio file:', error);
+      return this.generateMockAudioData();
+    }
+  }
+
+  private parseWavFromBuffer(arrayBuffer: ArrayBuffer): Float32Array {
+    const bytes = new Uint8Array(arrayBuffer);
+    return this.parseWavData(bytes);
+  }
+
+  private parseWavData(bytes: Uint8Array): Float32Array {
+    // Parse WAV file header
+    const dataOffset = 44; // Standard WAV header size
+    
+    if (bytes.length < dataOffset) {
+      console.warn('Audio file too small, using mock data');
+      return this.generateMockAudioData();
+    }
+    
+    // Extract PCM data (16-bit samples)
+    const pcmData = bytes.slice(dataOffset);
+    const numSamples = Math.floor(pcmData.length / 2);
+    const floatData = new Float32Array(numSamples);
+    
+    // Convert 16-bit PCM to Float32 (-1.0 to 1.0)
+    for (let i = 0; i < numSamples; i++) {
+      const sample = (pcmData[i * 2] | (pcmData[i * 2 + 1] << 8));
+      // Convert to signed 16-bit
+      const signedSample = sample < 32768 ? sample : sample - 65536;
+      floatData[i] = signedSample / 32768.0;
+    }
+    
+    // Resample from 44100 Hz to 22050 Hz (take every 2nd sample)
+    const targetLength = Math.floor(floatData.length / 2);
+    const resampled = new Float32Array(targetLength);
+    for (let i = 0; i < targetLength; i++) {
+      resampled[i] = floatData[i * 2];
+    }
+    
+    // Ensure we have exactly 2 seconds (44100 samples at 22050 Hz)
+    const targetSamples = 22050 * 2;
+    if (resampled.length >= targetSamples) {
+      return resampled.slice(0, targetSamples);
+    } else {
+      // Pad with zeros if too short
+      const padded = new Float32Array(targetSamples);
+      padded.set(resampled);
+      return padded;
     }
   }
 

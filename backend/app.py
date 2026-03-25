@@ -37,26 +37,52 @@ def load_model():
 def preprocess_audio(audio_data, sample_rate=22050, duration=2.0):
     """Preprocess audio data for model input"""
     try:
-        # Convert bytes to numpy array
+        # Decode base64 to bytes
         audio_bytes = base64.b64decode(audio_data)
-        audio, sr = librosa.load(io.BytesIO(audio_bytes), sr=sample_rate)
         
-        # Ensure consistent duration
-        if len(audio) > sample_rate * duration:
-            audio = audio[:int(sample_rate * duration)]
+        # Convert bytes back to Float32Array
+        audio_array = np.frombuffer(audio_bytes, dtype=np.float32)
+        
+        # Ensure consistent duration (2 seconds = 44100 samples at 22050 Hz)
+        target_length = int(sample_rate * duration)
+        
+        if len(audio_array) > target_length:
+            audio = audio_array[:target_length]
         else:
-            audio = np.pad(audio, (0, int(sample_rate * duration) - len(audio)))
+            # Pad with zeros if too short
+            audio = np.pad(audio_array, (0, target_length - len(audio_array)))
         
-        # Extract features (MFCCs)
-        mfccs = librosa.feature.mfcc(y=audio, sr=sample_rate, n_mfcc=13, n_fft=2048, hop_length=512)
+        # Extract mel spectrogram (not MFCC) - model expects 128 mel bins
+        mel_spec = librosa.feature.melspectrogram(
+            y=audio, 
+            sr=sample_rate, 
+            n_mels=128, 
+            n_fft=2048, 
+            hop_length=512
+        )
+        
+        # Convert to dB scale
+        mel_spec_db = librosa.power_to_db(mel_spec, ref=np.max)
+        
+        # Ensure correct shape: mel_spec_db is (128, 87) for 2 seconds
+        # We need (128, 173) so we need to interpolate
+        target_frames = 173
+        if mel_spec_db.shape[1] != target_frames:
+            from scipy import ndimage
+            # Use zoom to resize
+            zoom_factor = target_frames / mel_spec_db.shape[1]
+            mel_spec_db = ndimage.zoom(mel_spec_db, (1, zoom_factor), order=1)
         
         # Add channel dimension and batch dimension
-        mfccs = np.expand_dims(mfccs, axis=-1)  # Add channel dimension
-        mfccs = np.expand_dims(mfccs, axis=0)  # Add batch dimension
+        mel_spec_db = np.expand_dims(mel_spec_db, axis=-1)  # Add channel dimension: (128, 173, 1)
+        mel_spec_db = np.expand_dims(mel_spec_db, axis=0)   # Add batch dimension: (1, 128, 173, 1)
         
-        return mfccs
+
+        return mel_spec_db
     except Exception as e:
         print(f"Error preprocessing audio: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 @app.route('/health', methods=['GET'])
@@ -85,7 +111,13 @@ def classify_audio():
             return jsonify({'error': 'Failed to preprocess audio'}), 400
         
         # Make prediction
-        predictions = model.predict(processed_audio)
+        try:
+            predictions = model.predict(processed_audio)
+        except Exception as pred_error:
+            print(f"Prediction error: {pred_error}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'Prediction failed: {str(pred_error)}'}), 500
         
         # Get top prediction and all probabilities
         predicted_class_idx = np.argmax(predictions[0])
@@ -111,7 +143,9 @@ def classify_audio():
         
     except Exception as e:
         print(f"Error in classification: {e}")
-        return jsonify({'error': 'Classification failed'}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Classification failed: {str(e)}'}), 500
 
 if __name__ == '__main__':
     load_model()

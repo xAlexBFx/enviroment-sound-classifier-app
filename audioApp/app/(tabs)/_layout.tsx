@@ -28,18 +28,6 @@ export default function TabLayout() {
           ),
         }}
       />
-      <Tabs.Screen
-        name="explore"
-        options={{
-          title: 'Settings',
-          tabBarIcon: ({ color, focused }) => (
-            <IconSymbol
-              name={focused ? 'gear' : 'gear'}
-              color={color}
-            />
-          ),
-        }}
-      />
     </Tabs>
   );
 }

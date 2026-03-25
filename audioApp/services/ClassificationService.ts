@@ -1,32 +1,30 @@
 import { AudioRecorder } from './AudioRecorder';
-import { AudioProcessor } from './AudioProcessor';
-import { ModelService, ClassificationResult } from './ModelService';
+import { ClassificationResult } from './ModelService';
 
 export class ClassificationService {
   private audioRecorder: AudioRecorder;
-  private audioProcessor: AudioProcessor;
-  private modelService: ModelService;
   private isInitialized = false;
   private classificationCallback: ((result: ClassificationResult) => void) | null = null;
   private realTimeVolumeCallback: ((volume: number) => void) | null = null;
+  private backendUrl: string;
 
-  constructor() {
+  constructor(backendUrl: string = 'http://localhost:5000') {
     this.audioRecorder = new AudioRecorder();
-    this.audioProcessor = new AudioProcessor();
-    this.modelService = new ModelService();
+    this.backendUrl = backendUrl;
   }
 
   async initialize(): Promise<boolean> {
     try {
-      const initialized = await this.modelService.loadModel();
-      if (!initialized) {
+      const response = await fetch(`${this.backendUrl}/health`);
+      if (response.ok) {
+        this.isInitialized = true;
+        return true;
+      } else {
+        console.error('Backend health check failed');
         return false;
       }
-      
-      this.isInitialized = true;
-      return true;
     } catch (error) {
-      console.error('Failed to initialize Classification Service:', error);
+      console.error('Failed to connect to backend:', error);
       return false;
     }
   }
@@ -67,19 +65,76 @@ export class ClassificationService {
 
   private async processAudioChunk(audioData: Float32Array): Promise<void> {
     try {
-      // Calculate volume from raw audio data
-      const volume = this.audioProcessor.calculateVolume(audioData);
-      
-      const melSpec = this.audioProcessor.processAudio(audioData);
-      const reshapedData = this.audioProcessor.reshapeForModel(melSpec);
-      const result = await this.modelService.predict(reshapedData, volume);
+      const volume = this.calculateVolume(audioData);
+      const result = await this.classifyWithBackend(audioData, volume);
       
       if (this.classificationCallback) {
         this.classificationCallback(result);
       }
+
+      if (this.realTimeVolumeCallback) {
+        this.realTimeVolumeCallback(volume);
+      }
     } catch (error) {
       console.error('Error processing audio chunk:', error);
     }
+  }
+
+  private calculateVolume(audioData: Float32Array): number {
+    if (audioData.length === 0) return 0;
+    let sum = 0;
+    for (let i = 0; i < audioData.length; i++) {
+      sum += audioData[i] * audioData[i];
+    }
+    const rms = Math.sqrt(sum / audioData.length);
+    return Math.min(rms * 10, 1);
+  }
+
+  private async classifyWithBackend(audioData: Float32Array, volume: number): Promise<ClassificationResult> {
+    try {
+      const base64Audio = this.float32ToBase64(audioData);
+      
+      const response = await fetch(`${this.backendUrl}/classify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          audio: base64Audio,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Backend error: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      return {
+        className: data.className,
+        confidence: data.confidence,
+        allProbabilities: data.allProbabilities || {},
+        volume: volume,
+      };
+    } catch (error) {
+      console.error('Backend classification failed:', error);
+      return {
+        className: 'unknown',
+        confidence: 0,
+        allProbabilities: {},
+        volume: volume,
+      };
+    }
+  }
+
+  private float32ToBase64(float32Array: Float32Array): string {
+    const buffer = float32Array.buffer;
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
   }
 
   isClassifying(): boolean {
@@ -97,8 +152,17 @@ export class ClassificationService {
     return this.isInitialized;
   }
 
-  getModelClassNames(): string[] {
-    return this.modelService.getClassNames();
+  async getModelClassNames(): Promise<string[]> {
+    try {
+      const response = await fetch(`${this.backendUrl}/health`);
+      if (response.ok) {
+        const data = await response.json();
+        return data.classes || [];
+      }
+    } catch (error) {
+      console.error('Failed to get class names:', error);
+    }
+    return [];
   }
 
   async classifySingleAudio(audioData: Float32Array): Promise<ClassificationResult> {
@@ -106,26 +170,22 @@ export class ClassificationService {
       throw new Error('Classification Service not initialized');
     }
 
-    try {
-      // Process audio to mel spectrogram
-      const melSpec = this.audioProcessor.processAudio(audioData);
-      
-      // Reshape for model input
-      const reshapedData = this.audioProcessor.reshapeForModel(melSpec);
-      
-      // Run inference
-      const result = await this.modelService.predict(reshapedData);
-      
-      return result;
-    } catch (error) {
-      console.error('Error classifying single audio:', error);
-      throw error;
-    }
+    const volume = this.calculateVolume(audioData);
+    return await this.classifyWithBackend(audioData, volume);
+  }
+
+  async updateBackendUrl(newUrl: string): Promise<boolean> {
+    this.backendUrl = newUrl;
+    this.isInitialized = false;
+    return await this.initialize();
+  }
+
+  getBackendUrl(): string {
+    return this.backendUrl;
   }
 
   dispose(): void {
     this.stopClassification();
-    this.modelService.dispose();
     this.isInitialized = false;
   }
 }

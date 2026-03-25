@@ -6,8 +6,11 @@ import { AudioRecorderComponent } from '@/components/AudioRecorder';
 import { ClassificationService } from '@/services/ClassificationService';
 import { ClassificationResult } from '@/services/ModelService';
 
+// Change this to your backend URL - use your computer's IP address for mobile
+const BACKEND_URL = 'http://10.153.9.160:5000';
+
 export default function HomeScreen() {
-  const classificationService = useMemo(() => new ClassificationService(), []);
+  const classificationService = useMemo(() => new ClassificationService(BACKEND_URL), []);
   const [isInitializing, setIsInitializing] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [currentResult, setCurrentResult] = useState<ClassificationResult | null>(null);
@@ -55,7 +58,13 @@ export default function HomeScreen() {
     try {
       const initialized = await classificationService.initialize();
       if (!initialized) {
-        Alert.alert('Error', 'Failed to initialize classification service');
+        Alert.alert(
+          'Backend Connection Failed',
+          `Cannot connect to backend at ${BACKEND_URL}. Please check:\n\n` +
+          '1. Backend server is running\n' +
+          '2. Your device is on the same network as the backend\n\n' +
+          "Update BACKEND_URL in the code with your computer's IP address."
+        );
       } else {
         // Automatically start recording after successful initialization
         handleStartRecording();
