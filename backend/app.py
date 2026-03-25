@@ -1,14 +1,24 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import tensorflow as tf
-import librosa
-import numpy as np
+import os
 import io
 import base64
-import os
+import numpy as np
+import librosa
+from scipy import ndimage
 from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
+
+# Try to import tensorflow/keras
+# TF 2.16+ has keras as a separate package
+try:
+    import tensorflow as tf
+    from keras.models import load_model as keras_load_model
+except ImportError:
+    import tensorflow as tf
+    keras_load_model = tf.keras.models.load_model
 
 app = Flask(__name__)
 CORS(app)
@@ -26,13 +36,14 @@ def load_model():
     try:
         model_path = os.path.join(os.path.dirname(__file__), 'models', 'urban_sound_model50.keras')
         if os.path.exists(model_path):
-            model = tf.keras.models.load_model(model_path)
+            model = keras_load_model(model_path)
             print(f"Model loaded successfully from {model_path}")
         else:
             print(f"Model file not found at {model_path}")
-            print("Please place your .keras model file in the backend/models/ directory")
     except Exception as e:
         print(f"Error loading model: {e}")
+        import traceback
+        traceback.print_exc()
 
 def preprocess_audio(audio_data, sample_rate=22050, duration=2.0):
     """Preprocess audio data for model input"""
