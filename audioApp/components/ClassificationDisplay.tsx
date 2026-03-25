@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import { ClassificationResult } from '../services/ModelService';
 
@@ -36,17 +36,24 @@ export const ClassificationDisplay: React.FC<ClassificationDisplayProps> = ({
     }
   }, [isRecording, pulseAnim]);
 
-  const getConfidenceColor = (confidence: number) => {
+  const getConfidenceColor = useCallback((confidence: number) => {
     if (confidence >= 0.8) return '#4CAF50'; // Green
     if (confidence >= 0.6) return '#FF9800'; // Orange
     return '#F44336'; // Red
-  };
+  }, []);
 
-  const formatClassName = (className: string) => {
+  const formatClassName = useCallback((className: string) => {
     return className.split('_').map(word => 
       word.charAt(0).toUpperCase() + word.slice(1)
     ).join(' ');
-  };
+  }, []);
+
+  const topPredictions = useMemo(() => {
+    if (!result) return [];
+    return Object.entries(result.allProbabilities)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 3);
+  }, [result]);
 
   return (
     <View style={styles.container}>
@@ -94,19 +101,16 @@ export const ClassificationDisplay: React.FC<ClassificationDisplayProps> = ({
 
           <View style={styles.topPredictions}>
             <Text style={styles.topPredictionsTitle}>Top Predictions:</Text>
-            {Object.entries(result.allProbabilities)
-              .sort(([, a], [, b]) => b - a)
-              .slice(0, 3)
-              .map(([className, probability], index) => (
-                <View key={className} style={styles.predictionItem}>
-                  <Text style={styles.predictionName}>
-                    {index + 1}. {formatClassName(className)}
-                  </Text>
-                  <Text style={styles.predictionProbability}>
-                    {(probability * 100).toFixed(1)}%
-                  </Text>
-                </View>
-              ))}
+            {topPredictions.map(([className, probability], index) => (
+              <View key={className} style={styles.predictionItem}>
+                <Text style={styles.predictionName}>
+                  {index + 1}. {formatClassName(className)}
+                </Text>
+                <Text style={styles.predictionProbability}>
+                  {(probability * 100).toFixed(1)}%
+                </Text>
+              </View>
+            ))}
           </View>
         </View>
       ) : (
@@ -137,50 +141,50 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 6,
     marginRight: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
   },
   statusText: {
     fontSize: 16,
-    fontWeight: '500',
-    color: '#666',
+    color: '#ffffff',
   },
   resultContainer: {
-    backgroundColor: '#fff',
-    borderRadius: 15,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    alignItems: 'center',
+    paddingVertical: 20,
   },
   classLabel: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 5,
+    fontSize: 16,
+    color: '#b0b0b0',
+    marginBottom: 8,
   },
   className: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 15,
+    color: '#ffffff',
+    marginBottom: 8,
+    textTransform: 'capitalize',
   },
   confidenceContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 20,
   },
   confidenceLabel: {
     fontSize: 16,
-    color: '#666',
+    color: '#b0b0b0',
+    marginRight: 8,
   },
   confidenceValue: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
   },
   progressBar: {
+    width: '100%',
     height: 8,
-    backgroundColor: '#E0E0E0',
+    backgroundColor: '#333333',
     borderRadius: 4,
     marginBottom: 20,
     overflow: 'hidden',
@@ -190,37 +194,43 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   topPredictions: {
-    marginTop: 10,
+    width: '100%',
   },
   topPredictionsTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
-    color: '#666',
-    marginBottom: 10,
+    color: '#ffffff',
+    marginBottom: 12,
   },
   predictionItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 5,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333333',
   },
   predictionName: {
     fontSize: 14,
-    color: '#333',
+    color: '#b0b0b0',
+    flex: 1,
+    textTransform: 'capitalize',
   },
   predictionProbability: {
-    fontSize: 14,
+    fontSize: 12,
+    color: '#ffffff',
     fontWeight: '500',
-    color: '#666',
+    width: 40,
+    textAlign: 'right',
   },
   noResultContainer: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 20,
   },
   noResultText: {
     fontSize: 16,
-    color: '#999',
+    color: '#b0b0b0',
+    fontStyle: 'italic',
     textAlign: 'center',
   },
 });

@@ -9,9 +9,9 @@ export class AudioProcessor {
   /**
    * Convert audio signal to mel spectrogram
    * @param audioData - Float32Array of audio samples
-   * @returns Mel spectrogram as Float32Array[128][173]
+   * @returns Mel spectrogram as number[][]
    */
-  processAudio(audioData: Float32Array): Float32Array[] {
+  processAudio(audioData: Float32Array): number[][] {
     // Pad or truncate to exactly 4 seconds
     const processedAudio = this.padOrTruncate(audioData);
     
@@ -46,7 +46,7 @@ export class AudioProcessor {
   /**
    * Compute mel spectrogram
    */
-  private computeMelSpectrogram(audioData: Float32Array): Float32Array[] {
+  private computeMelSpectrogram(audioData: Float32Array): number[][] {
     // Compute STFT
     const stft = this.computeSTFT(audioData);
     
@@ -59,41 +59,36 @@ export class AudioProcessor {
   /**
    * Compute Short-Time Fourier Transform
    */
-  private computeSTFT(audioData: Float32Array): Float32Array[] {
-    const frames = this.frameSignal(audioData);
-    const window = this.hannWindow(this.N_FFT);
+  private computeSTFT(audioData: Float32Array): number[][] {
+    const frameLength = 2048;
+    const hopLength = 512;
+    const numFrames = Math.ceil((audioData.length - frameLength) / hopLength) + 1;
+    const window = this.hannWindow(frameLength);
     
-    const stft: Float32Array[] = [];
+    const spectrogram: number[][] = [];
     
-    for (const frame of frames) {
-      // Apply window
-      const windowed = new Float32Array(this.N_FFT);
-      for (let i = 0; i < this.N_FFT; i++) {
-        windowed[i] = frame[i] * window[i];
+    for (let frame = 0; frame < numFrames; frame++) {
+      const start = frame * hopLength;
+      const end = start + frameLength;
+      
+      if (end > audioData.length) break;
+      
+      const frameData = audioData.slice(start, end);
+      const windowedFrame = this.applyWindow(frameData, window);
+      const fftResult = this.simplifiedFFT(windowedFrame);
+      
+      // Only keep first half (positive frequencies)
+      const halfLength = Math.floor(frameLength / 2) + 1;
+      const magnitudes = new Float32Array(halfLength);
+      
+      for (let i = 0; i < halfLength; i++) {
+        magnitudes[i] = fftResult[i];
       }
       
-      // Compute FFT (simplified - using magnitude only)
-      const spectrum = this.computeFFT(windowed);
-      stft.push(spectrum);
+      spectrogram.push(Array.from(magnitudes));
     }
     
-    return stft;
-  }
-
-  /**
-   * Frame the signal into overlapping windows
-   */
-  private frameSignal(audioData: Float32Array): Float32Array[] {
-    const frames: Float32Array[] = [];
-    const frameLength = this.N_FFT;
-    const hopLength = this.HOP_LENGTH;
-    
-    for (let i = 0; i < audioData.length - frameLength; i += hopLength) {
-      const frame = audioData.slice(i, i + frameLength);
-      frames.push(frame);
-    }
-    
-    return frames;
+    return spectrogram;
   }
 
   /**
@@ -102,43 +97,56 @@ export class AudioProcessor {
   private hannWindow(N: number): Float32Array {
     const window = new Float32Array(N);
     for (let i = 0; i < N; i++) {
-      window[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / (N - 1)));
+      window[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (N - 1)));
     }
     return window;
   }
 
   /**
-   * Simplified FFT computation (magnitude only)
+   * Apply window to signal
    */
-  private computeFFT(signal: Float32Array): Float32Array {
+  private applyWindow(signal: Float32Array, window: Float32Array): Float32Array {
+    const windowed = new Float32Array(signal.length);
+    for (let i = 0; i < signal.length; i++) {
+      windowed[i] = signal[i] * window[i];
+    }
+    return windowed;
+  }
+
+  /**
+   * Simplified FFT with optimizations
+   */
+  private simplifiedFFT(signal: Float32Array): Float32Array {
     const N = signal.length;
-    const spectrum = new Float32Array(Math.floor(N / 2) + 1);
+    const magnitudes = new Float32Array(N);
     
-    // Simplified FFT - in practice you'd use a proper FFT library
-    for (let k = 0; k < spectrum.length; k++) {
+    // Pre-compute constants
+    const twoPiOverN = (2 * Math.PI) / N;
+    
+    for (let k = 0; k < N; k++) {
       let real = 0;
       let imag = 0;
       
       for (let n = 0; n < N; n++) {
-        const angle = -2 * Math.PI * k * n / N;
+        const angle = k * n * twoPiOverN;
         real += signal[n] * Math.cos(angle);
-        imag += signal[n] * Math.sin(angle);
+        imag -= signal[n] * Math.sin(angle);
       }
       
-      spectrum[k] = Math.sqrt(real * real + imag * imag);
+      magnitudes[k] = Math.sqrt(real * real + imag * imag) / N;
     }
     
-    return spectrum;
+    return magnitudes;
   }
 
   /**
    * Convert linear frequency scale to mel scale
    */
-  private linearToMel(stft: Float32Array[]): Float32Array[] {
-    const melSpec: Float32Array[] = [];
+  private linearToMel(stft: number[][]): number[][] {
+    const melSpec: number[][] = [];
     
     for (const spectrum of stft) {
-      const melSpectrum = new Float32Array(this.N_MELS);
+      const melSpectrum: number[] = [];
       
       // Simplified mel filter bank application
       for (let m = 0; m < this.N_MELS; m++) {
@@ -149,7 +157,7 @@ export class AudioProcessor {
         // Find corresponding bin
         const bin = Math.round(hzFreq * this.N_FFT / this.SAMPLE_RATE);
         if (bin < spectrum.length) {
-          sum = spectrum[bin];
+          sum = Number(spectrum[bin]);
         }
         
         melSpectrum[m] = sum;
@@ -162,13 +170,13 @@ export class AudioProcessor {
   }
 
   /**
-   * Convert power to decibel scale
+   * Convert power to dB scale
    */
-  private powerToDb(melSpec: Float32Array[]): Float32Array[] {
-    const melSpecDb: Float32Array[] = [];
+  private powerToDb(melSpec: number[][]): number[][] {
+    const melSpecDb: number[][] = [];
     
     for (const frame of melSpec) {
-      const frameDb = new Float32Array(frame.length);
+      const frameDb: number[] = [];
       for (let i = 0; i < frame.length; i++) {
         // Add small value to avoid log(0)
         const power = Math.max(frame[i], 1e-10);

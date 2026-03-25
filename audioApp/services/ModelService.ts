@@ -27,6 +27,13 @@ export class ModelService {
 
   async loadModel(): Promise<boolean> {
     try {
+      // Try to initialize GPU backend first, fallback to CPU
+      try {
+        await tf.setBackend('webgl');
+      } catch (gpuError) {
+        await tf.setBackend('cpu');
+      }
+      
       await tf.ready();
       this.model = this.createMockModel();
       this.isLoaded = true;

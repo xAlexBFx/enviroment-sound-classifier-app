@@ -51,20 +51,18 @@ export const AudioRecorderComponent: React.FC<AudioRecorderComponentProps> = ({
 
 const styles = StyleSheet.create({
   container: {
+    padding: 20,
     alignItems: 'center',
-    paddingVertical: 20,
   },
   recordButton: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    elevation: 5,
+    backgroundColor: '#4CAF50',
+    paddingHorizontal: 40,
+    paddingVertical: 15,
+    borderRadius: 25,
+    elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
+    shadowOpacity: 0.3,
     shadowRadius: 4,
   },
   startButton: {
@@ -72,6 +70,14 @@ const styles = StyleSheet.create({
   },
   stopButton: {
     backgroundColor: '#F44336',
+  },
+  buttonDisabled: {
+    backgroundColor: '#333333',
+  },
+  buttonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   buttonContent: {
     alignItems: 'center',
@@ -83,20 +89,15 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   startDot: {
-    backgroundColor: '#fff',
+    backgroundColor: '#ffffff',
   },
   stopDot: {
-    backgroundColor: '#fff',
+    backgroundColor: '#ffffff',
     borderRadius: 8,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
   },
   helperText: {
     textAlign: 'center',
-    color: '#666',
+    color: '#b0b0b0',
     fontSize: 14,
     paddingHorizontal: 20,
     maxWidth: 300,
