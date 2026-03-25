@@ -5,41 +5,37 @@ import { ClassificationResult } from '../services/ModelService';
 interface ClassificationDisplayProps {
   result: ClassificationResult | null;
   isRecording: boolean;
+  realTimeVolume: number;
 }
 
 export const ClassificationDisplay: React.FC<ClassificationDisplayProps> = ({ 
   result, 
-  isRecording 
+  isRecording,
+  realTimeVolume 
 }) => {
-  const pulseAnim = React.useRef(new Animated.Value(1)).current;
+  const volumeSizeAnim = React.useRef(new Animated.Value(60)).current; // Base radius
 
+  // Always drive the ball from real-time mic volume (so it keeps moving even when results update)
+  const displayVolume = React.useMemo(() => {
+    return realTimeVolume;
+  }, [realTimeVolume]);
+
+  // Animate ball size based on display volume - smooth animated response
   React.useEffect(() => {
-    if (isRecording) {
-      const pulseAnimation = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, {
-            toValue: 1.1,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-          Animated.timing(pulseAnim, {
-            toValue: 1,
-            duration: 1000,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      pulseAnimation.start();
-      return () => pulseAnimation.stop();
-    } else {
-      pulseAnim.setValue(1);
-    }
-  }, [isRecording, pulseAnim]);
+    // Bigger range for more dramatic size changes
+    const targetSize = 60 + (displayVolume * 140); // 60-200px range (much more dramatic)
+    
+    // Smooth animated transition for natural movement
+    Animated.timing(volumeSizeAnim, {
+      toValue: targetSize,
+      duration: 100, // 100ms smooth transition
+      useNativeDriver: false, // Can't use native driver for size changes
+    }).start();
+  }, [displayVolume, volumeSizeAnim]);
 
-  const getConfidenceColor = useCallback((confidence: number) => {
-    if (confidence >= 0.8) return '#4CAF50'; // Green
-    if (confidence >= 0.6) return '#FF9800'; // Orange
-    return '#F44336'; // Red
+  const getVolumeColor = useCallback((volume: number) => {
+    // Always return white regardless of volume
+    return '#FFFFFF';
   }, []);
 
   const formatClassName = useCallback((className: string) => {
@@ -58,12 +54,11 @@ export const ClassificationDisplay: React.FC<ClassificationDisplayProps> = ({
   return (
     <View style={styles.container}>
       <View style={styles.statusContainer}>
-        <Animated.View 
+        <View 
           style={[
             styles.recordingIndicator, 
             { 
-              transform: [{ scale: pulseAnim }],
-              backgroundColor: isRecording ? '#4CAF50' : '#9E9E9E'
+              backgroundColor: isRecording ? getVolumeColor(displayVolume) : '#9E9E9E'
             }
           ]} 
         />
@@ -72,32 +67,11 @@ export const ClassificationDisplay: React.FC<ClassificationDisplayProps> = ({
         </Text>
       </View>
 
+      {/* Classification results - moved above volume ball */}
       {result ? (
-        <View style={styles.resultContainer}>
+        <View style={styles.resultContainerTop}>
           <Text style={styles.classLabel}>Detected Sound:</Text>
           <Text style={styles.className}>{formatClassName(result.className)}</Text>
-          
-          <View style={styles.confidenceContainer}>
-            <Text style={styles.confidenceLabel}>Confidence:</Text>
-            <Text style={[
-              styles.confidenceValue,
-              { color: getConfidenceColor(result.confidence) }
-            ]}>
-              {(result.confidence * 100).toFixed(1)}%
-            </Text>
-          </View>
-
-          <View style={styles.progressBar}>
-            <View 
-              style={[
-                styles.progressFill,
-                { 
-                  width: `${result.confidence * 100}%`,
-                  backgroundColor: getConfidenceColor(result.confidence)
-                }
-              ]} 
-            />
-          </View>
 
           <View style={styles.topPredictions}>
             <Text style={styles.topPredictionsTitle}>Top Predictions:</Text>
@@ -114,12 +88,27 @@ export const ClassificationDisplay: React.FC<ClassificationDisplayProps> = ({
           </View>
         </View>
       ) : (
-        <View style={styles.noResultContainer}>
+        <View style={styles.noResultContainerTop}>
           <Text style={styles.noResultText}>
             {isRecording ? 'Analyzing audio...' : 'Start recording to classify sounds'}
           </Text>
         </View>
       )}
+
+      {/* Main volume ball - centered and prominent */}
+      <View style={styles.volumeBallContainer}>
+        <Animated.View 
+          style={[
+            styles.volumeBall,
+            {
+              backgroundColor: getVolumeColor(displayVolume),
+              width: volumeSizeAnim,
+              height: volumeSizeAnim,
+              borderRadius: volumeSizeAnim
+            }
+          ]}
+        />
+      </View>
     </View>
   );
 };
@@ -135,6 +124,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 30,
+    position: 'absolute',
+    top: 50,
+    left: 0,
+    right: 0,
   },
   recordingIndicator: {
     width: 12,
@@ -151,9 +144,37 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#ffffff',
   },
+  volumeBallContainer: {
+    position: 'absolute',
+    bottom: 50,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  volumeBall: {
+    backgroundColor: '#4CAF50',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 16,
+    elevation: 12,
+  },
   resultContainer: {
     alignItems: 'center',
     paddingVertical: 20,
+    position: 'absolute',
+    bottom: 100,
+    left: 20,
+    right: 20,
+  },
+  resultContainerTop: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    position: 'absolute',
+    top: 100,
+    left: 20,
+    right: 20,
   },
   classLabel: {
     fontSize: 16,
@@ -164,34 +185,8 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: '#ffffff',
-    marginBottom: 8,
+    marginBottom: 20,
     textTransform: 'capitalize',
-  },
-  confidenceContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  confidenceLabel: {
-    fontSize: 16,
-    color: '#b0b0b0',
-    marginRight: 8,
-  },
-  confidenceValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  progressBar: {
-    width: '100%',
-    height: 8,
-    backgroundColor: '#333333',
-    borderRadius: 4,
-    marginBottom: 20,
-    overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%',
-    borderRadius: 4,
   },
   topPredictions: {
     width: '100%',
@@ -226,6 +221,18 @@ const styles = StyleSheet.create({
   noResultContainer: {
     alignItems: 'center',
     paddingVertical: 20,
+    position: 'absolute',
+    bottom: 100,
+    left: 20,
+    right: 20,
+  },
+  noResultContainerTop: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    position: 'absolute',
+    top: 100,
+    left: 20,
+    right: 20,
   },
   noResultText: {
     fontSize: 16,

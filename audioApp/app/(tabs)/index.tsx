@@ -11,6 +11,7 @@ export default function HomeScreen() {
   const [isInitializing, setIsInitializing] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [currentResult, setCurrentResult] = useState<ClassificationResult | null>(null);
+  const [realTimeVolume, setRealTimeVolume] = useState(0);
 
   useEffect(() => {
     initializeService();
@@ -20,24 +21,12 @@ export default function HomeScreen() {
     };
   }, [classificationService]);
 
-  const initializeService = useCallback(async () => {
-    try {
-      const initialized = await classificationService.initialize();
-      if (!initialized) {
-        Alert.alert('Error', 'Failed to initialize classification service');
-      }
-    } catch (error) {
-      console.error('Initialization error:', error);
-      Alert.alert('Error', 'Failed to initialize the app');
-    } finally {
-      setIsInitializing(false);
-    }
-  }, [classificationService]);
-
   const handleStartRecording = useCallback(async () => {
     try {
       const started = await classificationService.startClassification((result) => {
         setCurrentResult(result);
+      }, (volume) => {
+        setRealTimeVolume(volume);
       });
       
       if (started) {
@@ -61,18 +50,35 @@ export default function HomeScreen() {
     }
   }, [classificationService]);
 
+
+  const initializeService = useCallback(async () => {
+    try {
+      const initialized = await classificationService.initialize();
+      if (!initialized) {
+        Alert.alert('Error', 'Failed to initialize classification service');
+      } else {
+        // Automatically start recording after successful initialization
+        handleStartRecording();
+      }
+    } catch (error) {
+      console.error('Initialization error:', error);
+      Alert.alert('Error', 'Failed to initialize the app');
+    } finally {
+      setIsInitializing(false);
+    }
+  }, [classificationService, handleStartRecording]);
+
   return (
     <View style={styles.container}>
       <ClassificationDisplay 
         result={currentResult} 
-        isRecording={isRecording} 
+        isRecording={isRecording}
+        realTimeVolume={realTimeVolume}
       />
       
       <AudioRecorderComponent
         isRecording={isRecording}
         isInitializing={isInitializing}
-        onStartRecording={handleStartRecording}
-        onStopRecording={handleStopRecording}
       />
     </View>
   );

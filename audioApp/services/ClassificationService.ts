@@ -8,6 +8,7 @@ export class ClassificationService {
   private modelService: ModelService;
   private isInitialized = false;
   private classificationCallback: ((result: ClassificationResult) => void) | null = null;
+  private realTimeVolumeCallback: ((volume: number) => void) | null = null;
 
   constructor() {
     this.audioRecorder = new AudioRecorder();
@@ -30,17 +31,18 @@ export class ClassificationService {
     }
   }
 
-  async startClassification(callback: (result: ClassificationResult) => void): Promise<boolean> {
+  async startClassification(callback: (result: ClassificationResult) => void, realTimeVolumeCallback?: (volume: number) => void): Promise<boolean> {
     if (!this.isInitialized) {
       throw new Error('Classification Service not initialized');
     }
 
     this.classificationCallback = callback;
+    this.realTimeVolumeCallback = realTimeVolumeCallback || null;
 
     try {
       const started = await this.audioRecorder.startRecording(async (audioData: Float32Array) => {
         await this.processAudioChunk(audioData);
-      });
+      }, this.realTimeVolumeCallback || undefined);
       
       if (started) {
         return true;
@@ -57,6 +59,7 @@ export class ClassificationService {
     try {
       await this.audioRecorder.stopRecording();
       this.classificationCallback = null;
+      this.realTimeVolumeCallback = null;
     } catch (error) {
       console.error('Failed to stop classification:', error);
     }
@@ -64,9 +67,12 @@ export class ClassificationService {
 
   private async processAudioChunk(audioData: Float32Array): Promise<void> {
     try {
+      // Calculate volume from raw audio data
+      const volume = this.audioProcessor.calculateVolume(audioData);
+      
       const melSpec = this.audioProcessor.processAudio(audioData);
       const reshapedData = this.audioProcessor.reshapeForModel(melSpec);
-      const result = await this.modelService.predict(reshapedData);
+      const result = await this.modelService.predict(reshapedData, volume);
       
       if (this.classificationCallback) {
         this.classificationCallback(result);
@@ -78,6 +84,13 @@ export class ClassificationService {
 
   isClassifying(): boolean {
     return this.audioRecorder.isActive();
+  }
+
+  /**
+   * Get access to the audio recorder for testing purposes
+   */
+  getAudioRecorder(): AudioRecorder {
+    return this.audioRecorder;
   }
 
   isReady(): boolean {

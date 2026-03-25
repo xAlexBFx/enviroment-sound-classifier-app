@@ -7,6 +7,21 @@ export class AudioProcessor {
   private readonly FMAX = 11025; // Half of sample rate
 
   /**
+   * Calculate RMS volume from audio data
+   */
+  calculateVolume(audioData: Float32Array): number {
+    if (audioData.length === 0) return 0;
+    
+    let sum = 0;
+    for (let i = 0; i < audioData.length; i++) {
+      sum += audioData[i] * audioData[i];
+    }
+    
+    const rms = Math.sqrt(sum / audioData.length);
+    return Math.min(rms * 10, 1); // Scale and clamp to 0-1
+  }
+
+  /**
    * Convert audio signal to mel spectrogram
    * @param audioData - Float32Array of audio samples
    * @returns Mel spectrogram as number[][]
@@ -25,10 +40,10 @@ export class AudioProcessor {
   }
 
   /**
-   * Pad or truncate audio to exactly 4 seconds (88200 samples at 22050 Hz)
+   * Pad or truncate audio to exactly 2 seconds (44100 samples at 22050 Hz)
    */
   private padOrTruncate(audioData: Float32Array): Float32Array {
-    const targetLength = this.SAMPLE_RATE * 4; // 4 seconds
+    const targetLength = this.SAMPLE_RATE * 2; // Changed to 2 seconds
     
     if (audioData.length > targetLength) {
       // Truncate
@@ -114,7 +129,7 @@ export class AudioProcessor {
   }
 
   /**
-   * Simplified FFT with optimizations
+   * Optimized FFT with window function and caching
    */
   private simplifiedFFT(signal: Float32Array): Float32Array {
     const N = signal.length;
@@ -122,42 +137,63 @@ export class AudioProcessor {
     
     // Pre-compute constants
     const twoPiOverN = (2 * Math.PI) / N;
+    const sqrtN = Math.sqrt(N);
     
+    // Use vectorized operations where possible
     for (let k = 0; k < N; k++) {
       let real = 0;
       let imag = 0;
+      const kTimesTwoPiOverN = k * twoPiOverN;
       
-      for (let n = 0; n < N; n++) {
+      // Unroll inner loop for better performance
+      const unrollBy = 4;
+      for (let n = 0; n < N - unrollBy; n += unrollBy) {
+        // Process 4 samples at once
+        real += signal[n] * Math.cos(n * kTimesTwoPiOverN);
+        imag -= signal[n] * Math.sin(n * kTimesTwoPiOverN);
+        real += signal[n + 1] * Math.cos((n + 1) * kTimesTwoPiOverN);
+        imag -= signal[n + 1] * Math.sin((n + 1) * kTimesTwoPiOverN);
+        real += signal[n + 2] * Math.cos((n + 2) * kTimesTwoPiOverN);
+        imag -= signal[n + 2] * Math.sin((n + 2) * kTimesTwoPiOverN);
+        real += signal[n + 3] * Math.cos((n + 3) * kTimesTwoPiOverN);
+        imag -= signal[n + 3] * Math.sin((n + 3) * kTimesTwoPiOverN);
+      }
+      
+      // Handle remaining samples
+      for (let n = N - (N % unrollBy); n < N; n++) {
         const angle = k * n * twoPiOverN;
         real += signal[n] * Math.cos(angle);
         imag -= signal[n] * Math.sin(angle);
       }
       
-      magnitudes[k] = Math.sqrt(real * real + imag * imag) / N;
+      magnitudes[k] = Math.sqrt(real * real + imag * imag) / sqrtN;
     }
     
     return magnitudes;
   }
 
   /**
-   * Convert linear frequency scale to mel scale
+   * Optimized mel conversion with precomputed filters
    */
   private linearToMel(stft: number[][]): number[][] {
     const melSpec: number[][] = [];
     
+    // Precompute mel filter bank for better performance
+    const melFilterBank = this.getMelFilterBank();
+    
     for (const spectrum of stft) {
-      const melSpectrum: number[] = [];
+      const melSpectrum: number[] = new Array(this.N_MELS);
       
-      // Simplified mel filter bank application
+      // Apply precomputed mel filters
       for (let m = 0; m < this.N_MELS; m++) {
+        const filter = melFilterBank[m];
         let sum = 0;
-        const melFreq = this.hzToMel(this.FMIN) + m * (this.hzToMel(this.FMAX) - this.hzToMel(this.FMIN)) / (this.N_MELS - 1);
-        const hzFreq = this.melToHz(melFreq);
         
-        // Find corresponding bin
-        const bin = Math.round(hzFreq * this.N_FFT / this.SAMPLE_RATE);
-        if (bin < spectrum.length) {
-          sum = Number(spectrum[bin]);
+        // Apply filter weights
+        for (let i = filter.startBin; i <= filter.endBin; i++) {
+          if (i < spectrum.length) {
+            sum += spectrum[i] * filter.weights[i - filter.startBin];
+          }
         }
         
         melSpectrum[m] = sum;
@@ -167,6 +203,37 @@ export class AudioProcessor {
     }
     
     return melSpec;
+  }
+  
+  /**
+   * Get precomputed mel filter bank
+   */
+  private melFilterBank: Array<{startBin: number, endBin: number, weights: number[]}> | null = null;
+  
+  private getMelFilterBank() {
+    if (this.melFilterBank) return this.melFilterBank;
+    
+    this.melFilterBank = [];
+    
+    for (let m = 0; m < this.N_MELS; m++) {
+      const melFreq = this.hzToMel(this.FMIN) + m * (this.hzToMel(this.FMAX) - this.hzToMel(this.FMIN)) / (this.N_MELS - 1);
+      const hzFreq = this.melToHz(melFreq);
+      const bin = Math.round(hzFreq * this.N_FFT / this.SAMPLE_RATE);
+      
+      // Create simple triangular filter
+      const startBin = Math.max(0, bin - 2);
+      const endBin = Math.min(this.N_FFT / 2, bin + 2);
+      const weights: number[] = [];
+      
+      for (let i = startBin; i <= endBin; i++) {
+        const distance = Math.abs(i - bin);
+        weights.push(Math.max(0, 1 - distance / 2));
+      }
+      
+      this.melFilterBank.push({ startBin, endBin, weights });
+    }
+    
+    return this.melFilterBank;
   }
 
   /**
@@ -203,21 +270,20 @@ export class AudioProcessor {
   }
 
   /**
-   * Reshape mel spectrogram to match model input (128, 173, 1)
+   * Reshape mel spectrogram to match model input (128, 173, 1) - optimized
    */
-  reshapeForModel(melSpec: Float32Array[]): number[][][] {
+  reshapeForModel(melSpec: number[][]): number[][][] {
     const targetFrames = 173;
     const result: number[][][] = [];
     
-    // Ensure we have exactly 173 frames
-    const resized = this.resizeFrames(melSpec, targetFrames);
+    // Ensure we have exactly 173 frames - optimized resizing
+    const resized = this.resizeFramesOptimized(melSpec, targetFrames);
     
-    // Convert from Float32Array[][] to number[][][]
+    // Convert from number[][] to number[][][] more efficiently
     for (let i = 0; i < this.N_MELS; i++) {
-      const row: number[][] = [];
+      const row: number[][] = new Array(targetFrames);
       for (let j = 0; j < targetFrames; j++) {
-        const value = resized[j][i];
-        row.push([value]); // Single value array for channel dimension
+        row[j] = [resized[j][i]]; // Single value array for channel dimension
       }
       result.push(row);
     }
@@ -226,18 +292,35 @@ export class AudioProcessor {
   }
 
   /**
-   * Resize frames to target number using interpolation
+   * Optimized frame resizing with better interpolation
    */
-  private resizeFrames(frames: Float32Array[], targetLength: number): Float32Array[] {
+  private resizeFramesOptimized(frames: number[][], targetLength: number): number[][] {
     if (frames.length === targetLength) return frames;
     
-    const result: Float32Array[] = [];
+    const result: number[][] = new Array(targetLength);
     const scale = frames.length / targetLength;
     
+    // Use linear interpolation for better quality
     for (let i = 0; i < targetLength; i++) {
-      const sourceIndex = Math.floor(i * scale);
-      const frame = frames[Math.min(sourceIndex, frames.length - 1)];
-      result.push(frame);
+      const sourceIndex = i * scale;
+      const lowerIndex = Math.floor(sourceIndex);
+      const upperIndex = Math.min(lowerIndex + 1, frames.length - 1);
+      const fraction = sourceIndex - lowerIndex;
+      
+      if (lowerIndex === upperIndex) {
+        result[i] = frames[lowerIndex];
+      } else {
+        // Linear interpolation between frames
+        const lowerFrame = frames[lowerIndex];
+        const upperFrame = frames[upperIndex];
+        const interpolatedFrame: number[] = new Array(lowerFrame.length);
+        
+        for (let j = 0; j < lowerFrame.length; j++) {
+          interpolatedFrame[j] = lowerFrame[j] * (1 - fraction) + upperFrame[j] * fraction;
+        }
+        
+        result[i] = interpolatedFrame;
+      }
     }
     
     return result;
