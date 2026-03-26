@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
-import { ClassificationResult } from '../services/ModelService';
+import { ClassificationResult } from '../services/ClassificationService';
 
 interface ClassificationDisplayProps {
   result: ClassificationResult | null;
@@ -13,26 +13,25 @@ export const ClassificationDisplay: React.FC<ClassificationDisplayProps> = ({
   isRecording,
   realTimeVolume 
 }) => {
-  const volumeSizeAnim = React.useRef(new Animated.Value(30)).current; // Base radius 30
+  const volumeSizeAnim = React.useRef(new Animated.Value(30)).current;
 
-  // Always drive the ball from real-time mic volume (so it keeps moving even when results update)
+  // Always drive the ball from real-time mic volume
   const displayVolume = React.useMemo(() => {
     return realTimeVolume;
   }, [realTimeVolume]);
 
-  // Animate ball size based on display volume - smooth animated response
+  // Animate ball size based on display volume
   React.useEffect(() => {
-    // Compact range for smaller circle
-    const targetSize = 30 + (displayVolume * 60); // 30-90px range
+    const targetSize = 30 + (displayVolume * 60);
     
-    // Fast spring animation for immediate response
     Animated.spring(volumeSizeAnim, {
       toValue: targetSize,
       useNativeDriver: false,
       friction: 5,
       tension: 200,
     }).start();
-  }, [displayVolume, volumeSizeAnim]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayVolume]);
 
   const getVolumeColor = useCallback((volume: number) => {
     // Always return white regardless of volume

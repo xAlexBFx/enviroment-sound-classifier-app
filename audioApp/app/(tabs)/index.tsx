@@ -4,10 +4,10 @@ import { StyleSheet, View, Alert } from 'react-native';
 import { ClassificationDisplay } from '@/components/ClassificationDisplay';
 import { AudioRecorderComponent } from '@/components/AudioRecorder';
 import { ClassificationService } from '@/services/ClassificationService';
-import { ClassificationResult } from '@/services/ModelService';
+import { ClassificationResult } from '@/services/ClassificationService';
 
 // Change this to your backend URL - use your computer's IP address for mobile
-const BACKEND_URL = 'http://10.153.9.160:5000';
+const BACKEND_URL = 'http://10.0.0.59:5000';
 
 export default function HomeScreen() {
   const classificationService = useMemo(() => new ClassificationService(BACKEND_URL), []);
@@ -22,7 +22,8 @@ export default function HomeScreen() {
     return () => {
       classificationService.dispose();
     };
-  }, [classificationService]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleStartRecording = useCallback(async () => {
     try {

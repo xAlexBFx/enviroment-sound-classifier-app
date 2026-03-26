@@ -1,4 +1,4 @@
-import { ClassificationResult } from './ModelService';
+import { ClassificationResult } from './ClassificationService';
 
 export class OnlineClassificationService {
   private backendUrl: string;

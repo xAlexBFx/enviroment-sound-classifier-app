@@ -1,5 +1,11 @@
 import { AudioRecorder } from './AudioRecorder';
-import { ClassificationResult } from './ModelService';
+
+export interface ClassificationResult {
+  className: string;
+  confidence: number;
+  allProbabilities: { [key: string]: number };
+  volume: number;
+}
 
 export class ClassificationService {
   private audioRecorder: AudioRecorder;
