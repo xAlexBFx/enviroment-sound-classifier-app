@@ -57,21 +57,90 @@ def load_yamnet():
 def preprocess_audio(audio_data, sample_rate=22050):
     """Preprocess audio for YAMNet (expects 16kHz)"""
     try:
-        audio_bytes = base64.b64decode(audio_data)
-        audio_array = np.frombuffer(audio_bytes, dtype=np.float32)
+        print(f"Received audio data length: {len(audio_data)}")
         
-        # Resample to 16kHz for YAMNet
-        if sample_rate != 16000 and len(audio_array) > 0:
-            audio_array = librosa.resample(audio_array, orig_sr=sample_rate, target_sr=16000)
+        # Decode base64
+        try:
+            audio_bytes = base64.b64decode(audio_data)
+            print(f"Decoded bytes length: {len(audio_bytes)}")
+        except Exception as e:
+            print(f"Base64 decode error: {e}")
+            return None
         
-        # Normalize to [-1, 1]
-        max_val = np.max(np.abs(audio_array))
-        if max_val > 0:
-            audio_array = audio_array / max_val
+        # Check if this is raw file data (marker 888.888 as first float)
+        if len(audio_bytes) > 4:
+            try:
+                first_float = np.frombuffer(audio_bytes[:4], dtype=np.float32)[0]
+                print(f"First float value: {first_float}")
+                
+                if abs(first_float - 888.888) < 0.001:
+                    print("Detected file data marker")
+                    # This is file data - rest are byte values as floats
+                    float_array = np.frombuffer(audio_bytes[4:], dtype=np.float32)
+                    print(f"Float array length: {len(float_array)}")
+                    
+                    file_bytes = bytes([int(min(255, max(0, f))) for f in float_array])
+                    print(f"Reconstructed file bytes: {len(file_bytes)}")
+                    print(f"First 20 bytes (hex): {file_bytes[:20].hex()}")
+                    
+                    # Detect file format from header
+                    ext = '.m4a'
+                    if file_bytes[:4] == b'RIFF':
+                        ext = '.wav'
+                        print("Detected WAV format")
+                    elif file_bytes[:4] == b'\x00\x00\x00\x20' or b'ftyp' in file_bytes[:100]:
+                        ext = '.m4a'
+                        print("Detected MP4/M4A format")
+                    
+                    # Save to temp file and load with librosa
+                    import tempfile
+                    import os
+                    
+                    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                        tmp.write(file_bytes)
+                        tmp_path = tmp.name
+                        print(f"Saved to temp file: {tmp_path}")
+                    
+                    try:
+                        # Load with librosa (supports MP4/AAC, WAV, etc.)
+                        audio_array, sr = librosa.load(tmp_path, sr=16000, mono=True)
+                        print(f"Loaded audio with librosa: {len(audio_array)} samples at {sr}Hz")
+                        os.unlink(tmp_path)
+                        return audio_array
+                    except Exception as e:
+                        print(f"Error loading audio file with librosa: {e}")
+                        # Save failed file for debugging
+                        debug_path = f"failed_audio{ext}"
+                        with open(debug_path, 'wb') as f:
+                            f.write(file_bytes)
+                        print(f"Saved failed audio to {debug_path} for debugging")
+                        os.unlink(tmp_path)
+                        return None
+            except Exception as e:
+                print(f"Marker check failed: {e}")
         
-        return audio_array
+        # Standard path: Float32Array audio samples from web
+        try:
+            audio_array = np.frombuffer(audio_bytes, dtype=np.float32)
+            print(f"Audio array length: {len(audio_array)}")
+            
+            # Resample to 16kHz for YAMNet
+            if sample_rate != 16000 and len(audio_array) > 0:
+                audio_array = librosa.resample(audio_array, orig_sr=sample_rate, target_sr=16000)
+            
+            # Normalize to [-1, 1]
+            max_val = np.max(np.abs(audio_array))
+            if max_val > 0:
+                audio_array = audio_array / max_val
+            
+            return audio_array
+        except Exception as e:
+            print(f"Standard audio processing error: {e}")
+            return None
     except Exception as e:
         print(f"Preprocessing error: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 
@@ -141,7 +210,7 @@ def classify():
     }
     
     return jsonify({
-        'className': predicted_class if confidence >= 0.15 else 'unknown',
+        'className': predicted_class if confidence >= 0.6 else 'uncertain',
         'confidence': confidence,
         'allProbabilities': top_predictions,
         'model': 'yamnet',

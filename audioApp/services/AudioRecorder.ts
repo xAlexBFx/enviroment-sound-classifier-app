@@ -15,6 +15,8 @@ export class AudioRecorder {
   private webAnalyser: AnalyserNode | null = null;
   private webStream: MediaStream | null = null;
   private webRafId: number | null = null;
+  private webAudioBuffer: Float32Array[] = [];
+  private webScriptProcessor: ScriptProcessorNode | null = null;
   private webDataArray: Uint8Array | null = null;
   private webSmoothedVolume = 0;
 
@@ -75,7 +77,7 @@ export class AudioRecorder {
             linearPCMIsFloat: false,
           },
           web: {
-            mimeType: 'audio/webm',
+            mimeType: 'audio/wav',
             bitsPerSecond: 128000,
           },
           isMeteringEnabled: true,
@@ -218,7 +220,17 @@ export class AudioRecorder {
       this.webAnalyser = analyser;
 
       const source = audioContext.createMediaStreamSource(stream);
-      source.connect(analyser);
+      const processor = audioContext.createScriptProcessor(4096, 1, 1);
+      this.webScriptProcessor = processor;
+      
+      processor.onaudioprocess = (e) => {
+        if (!this.isRecording) return;
+        const inputData = e.inputBuffer.getChannelData(0);
+        this.webAudioBuffer.push(new Float32Array(inputData));
+      };
+      
+      source.connect(processor);
+      processor.connect(audioContext.destination);
 
       this.webDataArray = new Uint8Array(analyser.fftSize);
       this.webSmoothedVolume = 0;
@@ -282,8 +294,8 @@ export class AudioRecorder {
       this.webAudioContext = null;
     }
 
-    this.webAnalyser = null;
-    this.webDataArray = null;
+    this.webScriptProcessor = null;
+    this.webAudioBuffer = [];
   }
 
   /**
@@ -305,7 +317,23 @@ export class AudioRecorder {
     this.isProcessing = true;
 
     try {
-      // If we don't have a recording, start one
+      // On web, use the ScriptProcessorNode buffer
+      if (Platform.OS === 'web') {
+        // Wait 4 seconds to capture audio
+        await new Promise(resolve => setTimeout(resolve, 4000));
+        
+        // Get audio from web buffer
+        const audioData = this.getWebAudioData();
+        this.recordingCallback(audioData);
+        
+        // Clear buffer for next cycle
+        this.webAudioBuffer = [];
+        
+        this.isProcessing = false;
+        return;
+      }
+      
+      // Native path - use expo-av recording
       if (!this.recording) {
         await this.startNewRecording();
       }
@@ -342,6 +370,46 @@ export class AudioRecorder {
     }
   }
 
+  private getWebAudioData(): Float32Array {
+    // Concatenate all buffered audio chunks
+    if (this.webAudioBuffer.length === 0) {
+      return this.generateMockAudioData();
+    }
+    
+    // Calculate total length
+    const totalLength = this.webAudioBuffer.reduce((sum, chunk) => sum + chunk.length, 0);
+    const concatenated = new Float32Array(totalLength);
+    
+    let offset = 0;
+    for (const chunk of this.webAudioBuffer) {
+      concatenated.set(chunk, offset);
+      offset += chunk.length;
+    }
+    
+    // Resample from 48000/44100 Hz to 22050 Hz
+    // ScriptProcessorNode typically runs at context sample rate
+    const sampleRate = this.webAudioContext?.sampleRate || 48000;
+    const resampleRatio = sampleRate / 22050;
+    const targetLength = Math.floor(totalLength / resampleRatio);
+    const resampled = new Float32Array(targetLength);
+    
+    for (let i = 0; i < targetLength; i++) {
+      const srcIndex = Math.floor(i * resampleRatio);
+      resampled[i] = concatenated[Math.min(srcIndex, totalLength - 1)];
+    }
+    
+    // Ensure we have exactly 2 seconds (44100 samples at 22050 Hz)
+    const targetSamples = 22050 * 2;
+    if (resampled.length >= targetSamples) {
+      return resampled.slice(0, targetSamples);
+    } else {
+      // Pad with zeros if too short
+      const padded = new Float32Array(targetSamples);
+      padded.set(resampled);
+      return padded;
+    }
+  }
+
   private async startNewRecording(): Promise<void> {
     if (!this.isRecording) return;
     
@@ -368,7 +436,7 @@ export class AudioRecorder {
             linearPCMIsFloat: false,
           },
           web: {
-            mimeType: 'audio/webm',
+            mimeType: 'audio/wav',
             bitsPerSecond: 128000,
           },
         },
@@ -390,29 +458,31 @@ export class AudioRecorder {
 
   private async readAudioFile(uri: string): Promise<Float32Array> {
     try {
-      // On web, we can't use expo-file-system, so use fetch instead
+      // On web, use the web audio buffer (ScriptProcessorNode)
       if (Platform.OS === 'web') {
-        const response = await fetch(uri);
-        const blob = await response.blob();
-        const arrayBuffer = await blob.arrayBuffer();
-        
-        // Parse WAV file from array buffer
-        return this.parseWavFromBuffer(arrayBuffer);
+        return this.getWebAudioData();
       }
       
-      // On native, use expo-file-system
+      // On native (iOS/Android), read file and convert to audio samples
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: 'base64',
       });
       
-      // Decode base64 to bytes
+      // Decode base64 to bytes using atob
       const binaryString = atob(base64);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
       
-      return this.parseWavData(bytes);
+      // Convert to float array with marker for backend
+      const result = new Float32Array(bytes.length + 1);
+      result[0] = 888.888; // Marker for file data
+      for (let i = 0; i < bytes.length; i++) {
+        result[i + 1] = bytes[i]; // Store byte values as floats
+      }
+      
+      return result;
     } catch (error) {
       console.error('Error reading audio file:', error);
       return this.generateMockAudioData();
