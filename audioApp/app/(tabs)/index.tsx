@@ -6,8 +6,8 @@ import { AudioRecorderComponent } from '@/components/AudioRecorder';
 import { ClassificationService } from '@/services/ClassificationService';
 import { ClassificationResult } from '@/services/ClassificationService';
 
-// Change this to your backend URL - use your computer's IP address for mobile
-const BACKEND_URL = 'http://10.0.0.59:5000';
+// Use environment variable for backend URL, fallback to localhost
+const BACKEND_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:5000';
 
 export default function HomeScreen() {
   const classificationService = useMemo(() => new ClassificationService(BACKEND_URL), []);
