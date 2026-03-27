@@ -1,4 +1,6 @@
 import { AudioRecorder } from './AudioRecorder';
+import { OnlineClassificationService } from './OnlineClassificationService';
+import { errorReporter, InitializationError, NetworkError, ClassificationError, ValidationError } from './errors';
 
 export interface ClassificationResult {
   className: string;
@@ -26,11 +28,24 @@ export class ClassificationService {
         this.isInitialized = true;
         return true;
       } else {
-        console.error('Backend health check failed:', response.status);
+        errorReporter.createAndReportError(
+          NetworkError,
+          `Backend health check failed: ${response.status}`,
+          'ClassificationService',
+          'initialize',
+          { status: response.status, backendUrl: this.backendUrl }
+        );
         return false;
       }
     } catch (error) {
-      console.error('Failed to connect to backend:', error);
+      errorReporter.createAndReportError(
+        NetworkError,
+        'Failed to connect to backend',
+        'ClassificationService',
+        'initialize',
+        { backendUrl: this.backendUrl },
+        error as Error
+      );
       return false;
     }
   }
@@ -51,10 +66,23 @@ export class ClassificationService {
       if (started) {
         return true;
       } else {
+        errorReporter.createAndReportError(
+          ClassificationError,
+          'Failed to start audio recording',
+          'ClassificationService',
+          'startClassification'
+        );
         throw new Error('Failed to start audio recording');
       }
     } catch (error) {
-      console.error('Failed to start classification:', error);
+      errorReporter.createAndReportError(
+        ClassificationError,
+        'Failed to start classification',
+        'ClassificationService',
+        'startClassification',
+        { hasRealTimeVolumeCallback: !!this.realTimeVolumeCallback },
+        error as Error
+      );
       throw error;
     }
   }
@@ -65,12 +93,30 @@ export class ClassificationService {
       this.classificationCallback = null;
       this.realTimeVolumeCallback = null;
     } catch (error) {
-      console.error('Failed to stop classification:', error);
+      errorReporter.createAndReportError(
+        ClassificationError,
+        'Failed to stop classification',
+        'ClassificationService',
+        'stopClassification',
+        undefined,
+        error as Error
+      );
     }
   }
 
   private async processAudioChunk(audioData: Float32Array): Promise<void> {
     try {
+      if (!audioData || audioData.length === 0) {
+        errorReporter.createAndReportError(
+          ValidationError,
+          'Invalid audio data received',
+          'ClassificationService',
+          'processAudioChunk',
+          { audioDataLength: audioData?.length || 0 }
+        );
+        return;
+      }
+
       const volume = this.calculateVolume(audioData);
       const result = await this.classifyWithBackend(audioData, volume);
       
@@ -168,7 +214,14 @@ export class ClassificationService {
         return data.classes || [];
       }
     } catch (error) {
-      console.error('Failed to get class names:', error);
+      errorReporter.createAndReportError(
+        ClassificationError,
+        'Failed to get class names',
+        'ClassificationService',
+        'getClassNames',
+        undefined,
+        error as Error
+      );
     }
     return [];
   }

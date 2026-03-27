@@ -1,4 +1,5 @@
 import { ClassificationResult } from './ClassificationService';
+import { errorReporter, NetworkError, ClassificationError, ValidationError } from './errors';
 
 export class OnlineClassificationService {
   private backendUrl: string;
@@ -16,11 +17,24 @@ export class OnlineClassificationService {
         this.isInitialized = true;
         return true;
       } else {
-        console.error('Backend health check failed');
+        errorReporter.createAndReportError(
+          NetworkError,
+          'Backend health check failed',
+          'OnlineClassificationService',
+          'initialize',
+          { status: response.status, backendUrl: this.backendUrl }
+        );
         return false;
       }
     } catch (error) {
-      console.error('Failed to connect to backend:', error);
+      errorReporter.createAndReportError(
+        NetworkError,
+        'Failed to connect to backend',
+        'OnlineClassificationService',
+        'initialize',
+        { backendUrl: this.backendUrl },
+        error as Error
+      );
       return false;
     }
   }
@@ -31,6 +45,18 @@ export class OnlineClassificationService {
     }
 
     try {
+      // Validate audio data
+      if (!audioData || audioData.length === 0) {
+        errorReporter.createAndReportError(
+          ValidationError,
+          'Invalid audio data provided for classification',
+          'OnlineClassificationService',
+          'classifyAudio',
+          { audioDataLength: audioData?.length || 0 }
+        );
+        throw new Error('Invalid audio data');
+      }
+
       // Convert Float32Array to base64
       const base64Audio = this.float32ToBase64(audioData);
       
@@ -47,6 +73,13 @@ export class OnlineClassificationService {
 
 
       if (!response.ok) {
+        errorReporter.createAndReportError(
+          NetworkError,
+          `Backend classification error: ${response.status}`,
+          'OnlineClassificationService',
+          'classifyAudio',
+          { status: response.status, backendUrl: this.backendUrl }
+        );
         throw new Error(`Backend error: ${response.status}`);
       }
 
@@ -60,7 +93,14 @@ export class OnlineClassificationService {
         volume: 0, // Backend doesn't provide volume, set to 0
       };
     } catch (error) {
-      console.error('Online classification failed:', error);
+      errorReporter.createAndReportError(
+        ClassificationError,
+        'Online classification failed',
+        'OnlineClassificationService',
+        'classifyAudio',
+        { audioDataLength: audioData?.length || 0, backendUrl: this.backendUrl },
+        error as Error
+      );
       throw error;
     }
   }

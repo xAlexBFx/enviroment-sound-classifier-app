@@ -1,6 +1,7 @@
 import { Audio } from 'expo-av';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+import { errorReporter, AudioRecordingError, ValidationError, PermissionError } from './errors';
 
 export class AudioRecorder {
   private recording: Audio.Recording | null = null;
@@ -47,7 +48,19 @@ export class AudioRecorder {
         return true;
       }
 
-      await Audio.requestPermissionsAsync();
+      try {
+        await Audio.requestPermissionsAsync();
+      } catch (error) {
+        errorReporter.createAndReportError(
+          PermissionError,
+          'Failed to request audio permissions',
+          'AudioRecorder',
+          'startRecording',
+          undefined,
+          error as Error
+        );
+        throw error;
+      }
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
         playsInSilentModeIOS: true,
@@ -328,7 +341,13 @@ export class AudioRecorder {
         if (this.recordingCallback && typeof this.recordingCallback === 'function') {
           this.recordingCallback(audioData);
         } else {
-          console.error('recordingCallback is not a function when trying to call it');
+          errorReporter.createAndReportError(
+            ValidationError,
+            'recordingCallback is not a function when trying to call it',
+            'AudioRecorder',
+            'recordAndProcess',
+            { callbackType: typeof this.recordingCallback, hasCallback: !!this.recordingCallback }
+          );
         }
         
         // Clear buffer for next cycle
@@ -358,7 +377,13 @@ export class AudioRecorder {
             if (this.recordingCallback && typeof this.recordingCallback === 'function') {
               this.recordingCallback(audioData);
             } else {
-              console.error('recordingCallback is not a function when trying to call it (native)');
+              errorReporter.createAndReportError(
+                ValidationError,
+                'recordingCallback is not a function when trying to call it (native)',
+                'AudioRecorder',
+                'recordAndProcess',
+                { callbackType: typeof this.recordingCallback, hasCallback: !!this.recordingCallback, platform: 'native' }
+              );
             }
           }
           
@@ -368,14 +393,28 @@ export class AudioRecorder {
           // Start a new recording for the next cycle
           await this.startNewRecording();
         } catch (error) {
-          console.error('Error processing recording:', error);
+          errorReporter.createAndReportError(
+            AudioRecordingError,
+            'Error processing recording',
+            'AudioRecorder',
+            'recordAndProcess',
+            { hasRecording: !!this.recording, platform: Platform.OS },
+            error as Error
+          );
           if (this.recordingCallback && typeof this.recordingCallback === 'function') {
             this.recordingCallback(this.generateMockAudioData());
           }
         }
       }
     } catch (error) {
-      console.error('Error in recordAndProcess:', error);
+      errorReporter.createAndReportError(
+        AudioRecordingError,
+        'Error in recordAndProcess',
+        'AudioRecorder',
+        'recordAndProcess',
+        { isRecording: this.isRecording, isProcessing: this.isProcessing, hasCallback: !!this.recordingCallback },
+        error as Error
+      );
     } finally {
       this.isProcessing = false;
     }
