@@ -23,7 +23,7 @@
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://your-production-backend.com"
+        "EXPO_PUBLIC_API_URL": "https://environment-sound-api.onrender.com"
       }
     }
   },

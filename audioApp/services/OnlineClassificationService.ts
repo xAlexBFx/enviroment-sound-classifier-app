@@ -34,6 +34,8 @@ export class OnlineClassificationService {
       // Convert Float32Array to base64
       const base64Audio = this.float32ToBase64(audioData);
       
+      console.log('🎤 Sending classification request to backend...');
+      
       const response = await fetch(`${this.backendUrl}/classify`, {
         method: 'POST',
         headers: {
@@ -43,6 +45,8 @@ export class OnlineClassificationService {
           audio: base64Audio,
         }),
       });
+
+      console.log('🎤 Classification request sent, waiting for response...');
 
       if (!response.ok) {
         throw new Error(`Backend error: ${response.status}`);
