@@ -139,17 +139,14 @@ export class AudioRecorder {
    * Start the efficient classification cycle
    */
   private startClassificationCycle() {
-    console.log('🔄 Starting classification cycle - will process every 5 seconds');
     // Start recording and processing audio for classification
     this.recordAndProcess();
     
     // Set up classification interval - process every 5 seconds (4s record + 1s buffer)
     this.classificationInterval = setInterval(() => {
       if (!this.isProcessing) {
-        console.log('⏰ Triggering next classification cycle');
         this.recordAndProcess();
       } else {
-        console.log('⏭️ Skipping cycle - still processing previous one');
       }
     }, 5000);
   }
@@ -316,22 +313,23 @@ export class AudioRecorder {
     return 0.5; // Medium volume as placeholder
   }
   private async recordAndProcess() {
-    if (!this.recordingCallback || !this.isRecording || this.isProcessing) return;
+    if (!this.recordingCallback || typeof this.recordingCallback !== 'function' || !this.isRecording || this.isProcessing) return;
 
-    console.log('🎙️ Starting audio recording cycle...');
     this.isProcessing = true;
 
     try {
       // On web, use the ScriptProcessorNode buffer
       if (Platform.OS === 'web') {
-        console.log('🌐 Web platform - waiting 4 seconds to capture audio...');
         // Wait 4 seconds to capture audio
         await new Promise(resolve => setTimeout(resolve, 4000));
         
         // Get audio from web buffer
         const audioData = this.getWebAudioData();
-        console.log('📊 Got web audio data, calling callback...');
-        this.recordingCallback(audioData);
+        if (this.recordingCallback && typeof this.recordingCallback === 'function') {
+          this.recordingCallback(audioData);
+        } else {
+          console.error('recordingCallback is not a function when trying to call it');
+        }
         
         // Clear buffer for next cycle
         this.webAudioBuffer = [];
@@ -341,28 +339,27 @@ export class AudioRecorder {
       }
       
       // Native path - use expo-av recording
-      console.log('📱 Native platform - using expo-av recording');
       if (!this.recording) {
         await this.startNewRecording();
       }
       
-      console.log('⏱️ Waiting 4 seconds to capture audio...');
       // Wait 4 seconds to capture audio
       await new Promise(resolve => setTimeout(resolve, 4000));
       
       // Now stop and process
       if (this.recording) {
         try {
-          console.log('🛑 Stopping recording and processing audio...');
           await this.recording.stopAndUnloadAsync();
           const uri = this.recording.getURI();
           
           if (uri) {
-            console.log('📁 Reading audio file from:', uri);
             // Read the saved audio file
             const audioData = await this.readAudioFile(uri);
-            console.log('📊 Got native audio data, calling callback...');
-            this.recordingCallback(audioData);
+            if (this.recordingCallback && typeof this.recordingCallback === 'function') {
+              this.recordingCallback(audioData);
+            } else {
+              console.error('recordingCallback is not a function when trying to call it (native)');
+            }
           }
           
           // Clean up
@@ -372,7 +369,9 @@ export class AudioRecorder {
           await this.startNewRecording();
         } catch (error) {
           console.error('Error processing recording:', error);
-          this.recordingCallback(this.generateMockAudioData());
+          if (this.recordingCallback && typeof this.recordingCallback === 'function') {
+            this.recordingCallback(this.generateMockAudioData());
+          }
         }
       }
     } catch (error) {

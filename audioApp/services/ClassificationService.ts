@@ -21,10 +21,8 @@ export class ClassificationService {
 
   async initialize(): Promise<boolean> {
     try {
-      console.log('🔍 Initializing ClassificationService, checking backend at:', this.backendUrl);
       const response = await fetch(`${this.backendUrl}/health`);
       if (response.ok) {
-        console.log('✅ Backend connection successful');
         this.isInitialized = true;
         return true;
       } else {
@@ -38,7 +36,6 @@ export class ClassificationService {
   }
 
   async startClassification(callback: (result: ClassificationResult) => void, realTimeVolumeCallback?: (volume: number) => void): Promise<boolean> {
-    console.log('🎙️ Starting classification...');
     if (!this.isInitialized) {
       throw new Error('Classification Service not initialized');
     }
@@ -47,13 +44,11 @@ export class ClassificationService {
     this.realTimeVolumeCallback = realTimeVolumeCallback || null;
 
     try {
-      console.log('🎙️ Starting audio recording...');
       const started = await this.audioRecorder.startRecording(async (audioData: Float32Array) => {
         await this.processAudioChunk(audioData);
       }, this.realTimeVolumeCallback || undefined);
       
       if (started) {
-        console.log('✅ Audio recording started successfully');
         return true;
       } else {
         throw new Error('Failed to start audio recording');
@@ -76,7 +71,6 @@ export class ClassificationService {
 
   private async processAudioChunk(audioData: Float32Array): Promise<void> {
     try {
-      console.log('🎤 Processing audio chunk - sending classification request...');
       const volume = this.calculateVolume(audioData);
       const result = await this.classifyWithBackend(audioData, volume);
       
@@ -184,7 +178,6 @@ export class ClassificationService {
       throw new Error('Classification Service not initialized');
     }
 
-    console.log('🎤 Classifying single audio - sending request...');
     const volume = this.calculateVolume(audioData);
     return await this.classifyWithBackend(audioData, volume);
   }
