@@ -14,7 +14,7 @@ export class ClassificationService {
   private realTimeVolumeCallback: ((volume: number) => void) | null = null;
   private backendUrl: string;
 
-  constructor(backendUrl: string = 'http://localhost:5000') {
+  constructor(backendUrl: string) {
     this.audioRecorder = new AudioRecorder();
     this.backendUrl = backendUrl;
   }
