@@ -39,7 +39,6 @@ export default function HomeScreen() {
         Alert.alert('Error', 'Failed to start recording');
       }
     } catch (error) {
-      console.error('Start recording error:', error);
       Alert.alert('Error', 'Failed to start sound classification');
     }
   }, [classificationService]);
@@ -49,7 +48,6 @@ export default function HomeScreen() {
       await classificationService.stopClassification();
       setIsRecording(false);
     } catch (error) {
-      console.error('Stop recording error:', error);
       Alert.alert('Error', 'Failed to stop recording');
     }
   }, [classificationService]);
@@ -71,7 +69,6 @@ export default function HomeScreen() {
         handleStartRecording();
       }
     } catch (error) {
-      console.error('Initialization error:', error);
       Alert.alert('Error', 'Failed to initialize the app');
     } finally {
       setIsInitializing(false);

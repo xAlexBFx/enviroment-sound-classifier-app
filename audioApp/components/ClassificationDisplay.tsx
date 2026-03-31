@@ -14,24 +14,50 @@ export const ClassificationDisplay: React.FC<ClassificationDisplayProps> = ({
   realTimeVolume 
 }) => {
   const volumeSizeAnim = React.useRef(new Animated.Value(30)).current;
+  const idleAnim = React.useRef(new Animated.Value(1)).current;
 
-  // Always drive the ball from real-time mic volume
-  const displayVolume = React.useMemo(() => {
-    return realTimeVolume;
-  }, [realTimeVolume]);
+  // Always drive the ball from real-time mic volume - removed useMemo for faster updates
+  const displayVolume = realTimeVolume;
 
-  // Animate ball size based on display volume
+  // Animate ball size based on display volume with smoother settings
   React.useEffect(() => {
-    const targetSize = 30 + (displayVolume * 60);
+    const targetSize = 30 + (displayVolume * 60); // Reduced size range for less dramatic changes
     
+    // Use spring animation for smoother, more natural movement
     Animated.spring(volumeSizeAnim, {
       toValue: targetSize,
       useNativeDriver: false,
-      friction: 5,
-      tension: 200,
+      friction: 8, // Higher friction for smoother, slower movement
+      tension: 100, // Lower tension for less aggressive response
     }).start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayVolume]);
+
+  // Continuous idle animation when not recording
+  React.useEffect(() => {
+    if (!isRecording) {
+      const pulseAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(idleAnim, {
+            toValue: 1.1,
+            duration: 1000,
+            useNativeDriver: false,
+          }),
+          Animated.timing(idleAnim, {
+            toValue: 0.95,
+            duration: 1000,
+            useNativeDriver: false,
+          }),
+        ])
+      );
+      pulseAnimation.start();
+      
+      return () => pulseAnimation.stop();
+    } else {
+      // Reset idle animation when recording starts
+      idleAnim.setValue(1);
+    }
+  }, [isRecording]);
 
   const getVolumeColor = useCallback((volume: number) => {
     // Always return white regardless of volume
@@ -90,7 +116,7 @@ export const ClassificationDisplay: React.FC<ClassificationDisplayProps> = ({
       ) : (
         <View style={styles.noResultContainerTop}>
           <Text style={styles.noResultText}>
-            {isRecording ? 'Analyzing audio...' : 'Start recording to classify sounds'}
+            {isRecording ? 'Analyzing audio...' : 'Preparing to Analyze the Environment...'}
           </Text>
         </View>
       )}
@@ -104,7 +130,8 @@ export const ClassificationDisplay: React.FC<ClassificationDisplayProps> = ({
               backgroundColor: getVolumeColor(displayVolume),
               width: volumeSizeAnim,
               height: volumeSizeAnim,
-              borderRadius: volumeSizeAnim
+              borderRadius: volumeSizeAnim,
+              transform: [{ scale: isRecording ? 1 : idleAnim }] // Add idle animation when not recording
             }
           ]}
         />

@@ -124,9 +124,8 @@ export class ClassificationService {
         this.classificationCallback(result);
       }
 
-      if (this.realTimeVolumeCallback) {
-        this.realTimeVolumeCallback(volume);
-      }
+      // Note: Real-time volume is handled by AudioRecorder directly, not here
+      // This prevents volume updates only after classification
     } catch (error) {
       console.error('Error processing audio chunk:', error);
     }
