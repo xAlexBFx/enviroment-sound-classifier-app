@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { StyleSheet, View, Alert } from 'react-native';
+import { StyleSheet, View, Alert, Text } from 'react-native';
 
 import { ClassificationDisplay } from '@/components/ClassificationDisplay';
 import { AudioRecorderComponent } from '@/components/AudioRecorder';
@@ -15,6 +15,7 @@ export default function HomeScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [currentResult, setCurrentResult] = useState<ClassificationResult | null>(null);
   const [realTimeVolume, setRealTimeVolume] = useState(0);
+  const [serverReady, setServerReady] = useState(false);
 
   useEffect(() => {
     initializeService();
@@ -65,6 +66,7 @@ export default function HomeScreen() {
           "Update BACKEND_URL in the code with your computer's IP address."
         );
       } else {
+        setServerReady(true);
         // Automatically start recording after successful initialization
         handleStartRecording();
       }
@@ -77,6 +79,14 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
+      {!serverReady && (
+        <View style={styles.noticeContainer}>
+          <Text style={styles.noticeText}>
+            The server may take a minute to start up.
+          </Text>
+        </View>
+      )}
+      
       <ClassificationDisplay 
         result={currentResult} 
         isRecording={isRecording}
@@ -95,5 +105,16 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#121212',
+  },
+  noticeContainer: {
+    backgroundColor: '#2196F3',
+    padding: 12,
+    margin: 16,
+    borderRadius: 8,
+  },
+  noticeText: {
+    color: 'white',
+    fontSize: 14,
+    textAlign: 'center',
   },
 });
