@@ -1,5 +1,8 @@
 # Listen E - Environmental Sound Classification App
 
+
+![soundwaves](https://github.com/user-attachments/assets/f75be5f3-45b3-4d17-9c04-a9e3569871c0)
+
 A cross-platform mobile application for real-time environmental sound classification using YAMNet (521 AudioSet classes). Connects to the [Environment Sound Classification API](https://github.com/xAlexBFx/environment-sound-API) for backend inference.
 
 ## Architecture Overview
